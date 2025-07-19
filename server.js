@@ -17,8 +17,13 @@ const io = socketIo(server, {
     methods: ["GET", "POST"]
   }
 });
-const PORT = process.env.PORT || 3000;
+
+// Configuration avec support Railway
+const PORT = process.env.PORT || process.env.RAILWAY_STATIC_URL_PORT || 3000;
 const API_KEY = process.env.API_KEY || 'supersecretkey';
+const FFMPEG_PATH = process.env.FFMPEG_PATH || '/usr/bin/ffmpeg';
+const MAX_FILE_SIZE = process.env.MAX_FILE_SIZE || 104857600; // 100MB
+const CLEANUP_TTL = process.env.CLEANUP_TTL || 7200000; // 2h
 
 // Configuration
 const videosDir = path.join(__dirname, 'videos');
@@ -181,7 +186,7 @@ app.post('/upload', async (req, res) => {
     filename: (req, file, cb) => cb(null, `video_${sessionId}_${Date.now()}${path.extname(file.originalname)}`)
   });
 
-  const upload = multer({ storage, limits: { fileSize: 100 * 1024 * 1024 } }).single('video');
+  const upload = multer({ storage, limits: { fileSize: MAX_FILE_SIZE } }).single('video');
 
   upload(req, res, async (err) => {
     if (err) return res.status(400).json({ error: 'Erreur upload' });
@@ -374,6 +379,33 @@ app.delete('/cleanup', (req, res) => {
 // Health
 app.get('/health', (_, res) => res.json({ status: 'OK' }));
 
+// Gestion d'erreurs globale
+process.on('uncaughtException', (err) => {
+  console.error('❌ Erreur non gérée:', err);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Promise rejetée non gérée:', reason);
+});
+
+// Gestion gracieuse de l'arrêt
+process.on('SIGTERM', () => {
+  console.log('🛑 Signal SIGTERM reçu, arrêt gracieux...');
+  server.close(() => {
+    console.log('✅ Serveur arrêté proprement');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('🛑 Signal SIGINT reçu, arrêt gracieux...');
+  server.close(() => {
+    console.log('✅ Serveur arrêté proprement');
+    process.exit(0);
+  });
+});
+
 // Pour tests : si lancé avec 'test'
 if (process.argv[2] === 'test') {
   // Intègre ici le code de quick-test.js si tu veux tester auto
@@ -396,11 +428,12 @@ if (process.argv[2] === 'test') {
     });
   });
 
-  server.listen(PORT, () => {
+  // Démarrage du serveur avec gestion d'erreurs
+  server.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Serveur sur port ${PORT}`);
     console.log(`📁 Dossier vidéos: ${videosDir}`);
     console.log(`🔧 FFmpeg: ${ffmpegPath}`);
     console.log(`🔌 Socket.IO activé`);
-    cleanupOldFiles();
+    console.log(`🌍 Mode: ${process.env.NODE_ENV || 'development'}`);
   });
 }
