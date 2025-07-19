@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>🎬 API Fusion Vidéo</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .dropzone { border: 2px dashed #ccc; padding: 20px; text-align: center; margin-bottom: 20px; }
+        button { padding: 10px 20px; margin-right: 10px; }
+        #result { margin-top: 20px; border: 1px solid #ccc; padding: 10px; }
+    </style>
+</head>
+<body>
+    <h1>🎬 API Fusion Vidéo</h1>
+    <p>Version Optimisée - Validation + Normalisation Conditionnelle</p>
+
+    <div>
+        <h2>📤 Upload des Vidéos</h2>
+        <div class="dropzone" id="dropzone">
+            Glissez vos vidéos ici ou cliquez pour sélectionner<br>
+            Formats supportés: MP4, AVI, MOV (Max 100MB)
+        </div>
+        <input type="file" id="fileInput" multiple accept="video/*" style="display: none;">
+    </div>
+
+    <div>
+        <h2>⚡ Actions</h2>
+        <button id="mergeBtn">🎬 FUSIONNER LES VIDÉOS</button>
+        <button id="cleanupBtn">🗑️ NETTOYER</button>
+        <button id="statusBtn">📊 STATUT</button>
+        <div id="progress">Préparation...</div>
+    </div>
+
+    <div>
+        <h2>📋 Résultat</h2>
+        <div id="result"></div>
+    </div>
+
+    <script>
+        const apiUrl = 'http://localhost:3000'; // Change si déployé
+        const apiKey = 'supersecretkey'; // Mets ta clé ici
+        
+        // Générer un sessionId unique pour cette session
+        const sessionId = Date.now().toString();
+        console.log('Session ID:', sessionId);
+
+        const dropzone = document.getElementById('dropzone');
+        const fileInput = document.getElementById('fileInput');
+        const mergeBtn = document.getElementById('mergeBtn');
+        const cleanupBtn = document.getElementById('cleanupBtn');
+        const statusBtn = document.getElementById('statusBtn');
+        const progress = document.getElementById('progress');
+        const result = document.getElementById('result');
+
+        // Drag & Drop
+        dropzone.addEventListener('click', () => fileInput.click());
+        dropzone.addEventListener('dragover', e => e.preventDefault());
+        dropzone.addEventListener('drop', e => {
+            e.preventDefault();
+            handleFiles(e.dataTransfer.files);
+        });
+        fileInput.addEventListener('change', e => handleFiles(e.target.files));
+
+        async function handleFiles(files) {
+            for (let file of files) {
+                progress.textContent = `Upload de ${file.name}...`;
+                const formData = new FormData();
+                formData.append('video', file);
+                try {
+                    const res = await fetch(`${apiUrl}/upload?sessionId=${sessionId}`, {
+                        method: 'POST',
+                        headers: { 'x-api-key': apiKey },
+                        body: formData
+                    });
+                    const data = await res.json();
+                    progress.textContent = `Upload OK: ${file.name}`;
+                } catch (err) {
+                    progress.textContent = 'Erreur upload';
+                }
+            }
+        }
+
+        mergeBtn.addEventListener('click', async () => {
+            progress.textContent = 'Fusion en cours...';
+            try {
+                const res = await fetch(`${apiUrl}/merge`, {
+                    method: 'POST',
+                    headers: { 
+                        'x-api-key': apiKey,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ sessionId: sessionId })
+                });
+                const data = await res.json();
+                result.innerHTML = `<p>Fusion OK: <a href="${apiUrl}${data.output}">Télécharger</a></p>`;
+            } catch (err) {
+                result.textContent = 'Erreur fusion';
+            }
+            progress.textContent = 'Terminé';
+        });
+
+        cleanupBtn.addEventListener('click', async () => {
+            progress.textContent = 'Nettoyage...';
+            await fetch(`${apiUrl}/cleanup`, { method: 'DELETE', headers: { 'x-api-key': apiKey } });
+            progress.textContent = 'Nettoyage OK';
+        });
+
+        statusBtn.addEventListener('click', async () => {
+            progress.textContent = 'Récupération statut...';
+            const res = await fetch(`${apiUrl}/health`);
+            const data = await res.json();
+            result.textContent = JSON.stringify(data, null, 2);
+            progress.textContent = 'Statut OK';
+        });
+    </script>
+</body>
+</html>
