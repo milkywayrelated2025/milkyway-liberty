@@ -400,8 +400,21 @@ app.get('/', (_, res) => {
   res.redirect('/test-optimized.html');
 });
 
-// Health
-app.get('/health', (_, res) => res.json({ status: 'OK' }));
+// Health check endpoint
+app.get('/health', (req, res) => {
+  // Vérifier que tous les composants sont prêts
+  const health = {
+    status: 'OK',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    ffmpeg: !!ffmpegPath,
+    socketio: !!io,
+    port: PORT
+  };
+  
+  console.log('🏥 Healthcheck appelé:', health);
+  res.status(200).json(health);
+});
 
 // Gestion d'erreurs globale
 process.on('uncaughtException', (err) => {
