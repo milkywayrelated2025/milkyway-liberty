@@ -257,6 +257,7 @@ app.post('/merge', async (req, res) => {
     // Fonction pour exécuter FFmpeg avec progression
     const runFFmpegWithProgress = (args, socketId) => {
       return new Promise((resolve, reject) => {
+        console.log(`🚀 Lancement FFmpeg: ${ffmpegPath} ${args.join(' ')}`);
         const ffmpeg = spawn(ffmpegPath, args);
         let stderrData = '';
 
@@ -274,9 +275,12 @@ app.post('/merge', async (req, res) => {
         });
 
         ffmpeg.on('close', (code) => {
+          console.log(`🏁 FFmpeg terminé avec code: ${code}`);
           if (code === 0) {
+            console.log(`✅ Fusion réussie`);
             resolve();
           } else {
+            console.error(`❌ FFmpeg échoué: ${parseFFmpegError(stderrData)}`);
             reject(new Error(parseFFmpegError(stderrData)));
           }
         });
@@ -340,13 +344,24 @@ app.post('/merge', async (req, res) => {
 
     // Vérifier durée output
     const durationCmd = `${ffprobePath} -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${outputPath}"`;
-    const actualDuration = await new Promise(res => {
-      exec(durationCmd, (_, stdout) => res(parseFloat(stdout.trim())));
+    console.log(`🔍 Vérification durée output: ${durationCmd}`);
+    const actualDuration = await new Promise((res, rej) => {
+      exec(durationCmd, (err, stdout) => {
+        if (err) {
+          console.error(`❌ Erreur ffprobe: ${err.message}`);
+          rej(err);
+        } else {
+          const duration = parseFloat(stdout.trim());
+          console.log(`✅ Durée output: ${duration}s`);
+          res(duration);
+        }
+      });
     });
 
     if (Math.abs(actualDuration - totalDuration) > 5) console.warn('⚠️ Durée mismatch');
 
     // Nettoyage session (supprime inputs et temp, garde output)
+    console.log(`🧹 Nettoyage session ${sessionId}`);
     cleanupSession(sessionId);
     
     // Nettoyage supplémentaire : supprimer aussi les anciens outputs de cette session
