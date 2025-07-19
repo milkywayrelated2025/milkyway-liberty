@@ -379,6 +379,11 @@ app.delete('/cleanup', (req, res) => {
   res.json({ message: 'Nettoyage OK' });
 });
 
+// Route racine - redirige vers l'interface
+app.get('/', (_, res) => {
+  res.redirect('/test-optimized.html');
+});
+
 // Health
 app.get('/health', (_, res) => res.json({ status: 'OK' }));
 
