@@ -36,6 +36,7 @@
         <div id="result"></div>
     </div>
 
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script>
         const apiUrl = 'http://localhost:3000'; // Change si déployé
         const apiKey = 'supersecretkey'; // Mets ta clé ici
@@ -43,6 +44,19 @@
         // Générer un sessionId unique pour cette session
         const sessionId = Date.now().toString();
         console.log('Session ID:', sessionId);
+
+        // Connexion Socket.IO
+        const socket = io(apiUrl);
+        let socketId = null;
+
+        socket.on('connect', () => {
+            socketId = socket.id;
+            console.log('🔌 Connecté au serveur:', socketId);
+        });
+
+        socket.on('disconnect', () => {
+            console.log('🔌 Déconnecté du serveur');
+        });
 
         const dropzone = document.getElementById('dropzone');
         const fileInput = document.getElementById('fileInput');
@@ -80,8 +94,36 @@
             }
         }
 
+        // Écouter la progression de fusion
+        socket.on('merge-progress', (data) => {
+            console.log('📊 Progression:', data);
+            
+            let progressText = data.message;
+            if (data.progress !== undefined) {
+                progressText = `${data.message} (${data.progress}%)`;
+            }
+            
+            progress.textContent = progressText;
+            
+            // Mettre à jour l'interface avec une barre de progression
+            if (data.progress !== undefined) {
+                progress.innerHTML = `
+                    <div style="margin: 10px 0;">
+                        <div style="background: #f0f0f0; border-radius: 10px; height: 20px; overflow: hidden;">
+                            <div style="background: linear-gradient(90deg, #4CAF50, #45a049); 
+                                        height: 100%; width: ${data.progress}%; 
+                                        transition: width 0.3s ease; border-radius: 10px;"></div>
+                        </div>
+                        <div style="margin-top: 5px; font-size: 12px; color: #666;">
+                            ${data.message} - Temps restant: ${data.eta || 'calcul...'}
+                        </div>
+                    </div>
+                `;
+            }
+        });
+
         mergeBtn.addEventListener('click', async () => {
-            progress.textContent = 'Fusion en cours...';
+            progress.textContent = 'Démarrage de la fusion...';
             try {
                 const res = await fetch(`${apiUrl}/merge`, {
                     method: 'POST',
@@ -89,14 +131,18 @@
                         'x-api-key': apiKey,
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ sessionId: sessionId })
+                    body: JSON.stringify({ 
+                        sessionId: sessionId,
+                        socketId: socketId 
+                    })
                 });
                 const data = await res.json();
-                result.innerHTML = `<p>Fusion OK: <a href="${apiUrl}${data.output}">Télécharger</a></p>`;
+                result.innerHTML = `<p>✅ Fusion terminée: <a href="${apiUrl}${data.output}">Télécharger</a></p>`;
+                progress.textContent = '✅ Fusion terminée avec succès !';
             } catch (err) {
-                result.textContent = 'Erreur fusion';
+                result.textContent = '❌ Erreur fusion: ' + err.message;
+                progress.textContent = '❌ Échec de la fusion';
             }
-            progress.textContent = 'Terminé';
         });
 
         cleanupBtn.addEventListener('click', async () => {

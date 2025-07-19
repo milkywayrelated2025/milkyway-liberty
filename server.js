@@ -4,10 +4,19 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const { exec } = require('child_process');
+const { exec, spawn } = require('child_process');
 const cors = require('cors');
+const http = require('http');
+const socketIo = require('socket.io');
 
 const app = express();
+const server = http.createServer(app);
+const io = socketIo(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.API_KEY || 'supersecretkey';
 
@@ -99,6 +108,38 @@ function parseFFmpegError(stderr) {
   if (stderr.includes('timeout')) return 'Timeout';
   if (stderr.includes('Codec not supported')) return 'Codec incompatible';
   return stderr || 'Erreur inconnue';
+}
+
+// Parser la progression FFmpeg
+function parseFFmpegProgress(stderr) {
+  const timeMatch = stderr.match(/time=(\d{2}):(\d{2}):(\d{2})\.(\d{2})/);
+  const durationMatch = stderr.match(/Duration: (\d{2}):(\d{2}):(\d{2})\.(\d{2})/);
+  
+  if (timeMatch && durationMatch) {
+    const currentTime = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseInt(timeMatch[3]) + parseInt(timeMatch[4]) / 100;
+    const totalDuration = parseInt(durationMatch[1]) * 3600 + parseInt(durationMatch[2]) * 60 + parseInt(durationMatch[3]) + parseInt(durationMatch[4]) / 100;
+    
+    const progress = Math.min((currentTime / totalDuration) * 100, 100);
+    const remainingTime = totalDuration - currentTime;
+    
+    return {
+      progress: Math.round(progress),
+      currentTime: Math.round(currentTime),
+      totalDuration: Math.round(totalDuration),
+      remainingTime: Math.round(remainingTime),
+      eta: formatTime(remainingTime)
+    };
+  }
+  
+  return null;
+}
+
+// Formater le temps en HH:MM:SS
+function formatTime(seconds) {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 }
 
 // Nettoyage auto (TTL 2h)
@@ -204,23 +245,87 @@ app.post('/merge', async (req, res) => {
     // Créer filelist
     fs.writeFileSync(filelistPath, inputFiles.map(f => `file '${f}'`).join('\n'));
 
-    // Concat avec -c copy d'abord
-    let concatCmd = `${ffmpegPath} -f concat -safe 0 -i "${filelistPath}" -c copy -fflags +genpts -avoid_negative_ts make_zero "${outputPath}"`;
-    let error = null;
+    // Fonction pour exécuter FFmpeg avec progression
+    const runFFmpegWithProgress = (args, socketId) => {
+      return new Promise((resolve, reject) => {
+        const ffmpeg = spawn(ffmpegPath, args);
+        let stderrData = '';
 
-    await new Promise((res, rej) => {
-      exec(concatCmd, { timeout: 300000 }, (err, _, stderr) => {
-        if (err) {
-          error = parseFFmpegError(stderr);
-          // Fallback à re-encode
-          concatCmd = `${ffmpegPath} -f concat -safe 0 -i "${filelistPath}" -c:v libx264 -preset veryfast -crf 23 -c:a aac -b:a 128k -fflags +genpts -avoid_negative_ts make_zero "${outputPath}"`;
-          exec(concatCmd, { timeout: 300000 }, (err2, _, stderr2) => {
-            if (err2) rej(new Error(parseFFmpegError(stderr2)));
-            else res();
-          });
-        } else res();
+        ffmpeg.stderr.on('data', (data) => {
+          stderrData += data.toString();
+          const progress = parseFFmpegProgress(stderrData);
+          
+          if (progress && socketId) {
+            io.to(socketId).emit('merge-progress', {
+              ...progress,
+              stage: 'fusion',
+              message: `Fusion en cours... ${progress.progress}% (${progress.eta} restant)`
+            });
+          }
+        });
+
+        ffmpeg.on('close', (code) => {
+          if (code === 0) {
+            resolve();
+          } else {
+            reject(new Error(parseFFmpegError(stderrData)));
+          }
+        });
+
+        ffmpeg.on('error', (err) => {
+          reject(new Error(err.message));
+        });
       });
-    });
+    };
+
+    // Concat avec -c copy d'abord
+    const socketId = req.body.socketId;
+    if (socketId) {
+      io.to(socketId).emit('merge-progress', {
+        progress: 0,
+        stage: 'preparation',
+        message: 'Préparation de la fusion...'
+      });
+    }
+
+    try {
+      const concatArgs = [
+        '-f', 'concat',
+        '-safe', '0',
+        '-i', filelistPath,
+        '-c', 'copy',
+        '-fflags', '+genpts',
+        '-avoid_negative_ts', 'make_zero',
+        outputPath
+      ];
+
+      await runFFmpegWithProgress(concatArgs, socketId);
+    } catch (error) {
+      // Fallback à re-encode si copy échoue
+      if (socketId) {
+        io.to(socketId).emit('merge-progress', {
+          progress: 0,
+          stage: 'fallback',
+          message: 'Tentative avec re-encodage...'
+        });
+      }
+
+      const reencodeArgs = [
+        '-f', 'concat',
+        '-safe', '0',
+        '-i', filelistPath,
+        '-c:v', 'libx264',
+        '-preset', 'veryfast',
+        '-crf', '23',
+        '-c:a', 'aac',
+        '-b:a', '128k',
+        '-fflags', '+genpts',
+        '-avoid_negative_ts', 'make_zero',
+        outputPath
+      ];
+
+      await runFFmpegWithProgress(reencodeArgs, socketId);
+    }
 
     if (!fs.existsSync(outputPath) || fs.statSync(outputPath).size === 0) throw new Error('Output invalide');
 
@@ -282,10 +387,20 @@ if (process.argv[2] === 'test') {
   };
   runQuickTest();
 } else {
-  app.listen(PORT, () => {
+  // Socket.IO connection handling
+  io.on('connection', (socket) => {
+    console.log(`🔌 Client connecté: ${socket.id}`);
+    
+    socket.on('disconnect', () => {
+      console.log(`🔌 Client déconnecté: ${socket.id}`);
+    });
+  });
+
+  server.listen(PORT, () => {
     console.log(`🚀 Serveur sur port ${PORT}`);
     console.log(`📁 Dossier vidéos: ${videosDir}`);
     console.log(`🔧 FFmpeg: ${ffmpegPath}`);
+    console.log(`🔌 Socket.IO activé`);
     cleanupOldFiles();
   });
 }
