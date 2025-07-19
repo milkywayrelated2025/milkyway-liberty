@@ -406,11 +406,27 @@ app.get('/health', (_, res) => res.json({ status: 'OK' }));
 // Gestion d'erreurs globale
 process.on('uncaughtException', (err) => {
   console.error('❌ Erreur non gérée:', err);
-  process.exit(1);
+  // Ne pas exit immédiatement, laisser Railway gérer
+  console.error('🔄 Tentative de récupération...');
 });
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('❌ Promise rejetée non gérée:', reason);
+  // Ne pas exit, juste logger
+});
+
+// Gestion gracieuse de l'arrêt
+process.on('SIGTERM', () => {
+  console.log('🛑 Signal SIGTERM reçu, arrêt gracieux...');
+  // Nettoyer les processus FFmpeg en cours
+  cleanupOldFiles();
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  console.log('🛑 Signal SIGINT reçu, arrêt gracieux...');
+  cleanupOldFiles();
+  process.exit(0);
 });
 
 // Gestion gracieuse de l'arrêt
