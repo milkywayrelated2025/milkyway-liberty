@@ -20,7 +20,7 @@ const io = socketIo(server, {
 
 // Configuration avec support Railway
 const PORT = process.env.PORT || process.env.RAILWAY_STATIC_URL_PORT || 3000;
-const API_KEY = process.env.API_KEY || 'supersecretkey';
+const API_KEY = process.env.API_KEY || 'sk_abc123xyz789pqr456stu789';
 const FFMPEG_PATH = process.env.FFMPEG_PATH || '/usr/bin/ffmpeg';
 const MAX_FILE_SIZE = process.env.MAX_FILE_SIZE || 104857600; // 100MB
 const CLEANUP_TTL = process.env.CLEANUP_TTL || 7200000; // 2h
