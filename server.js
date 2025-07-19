@@ -215,7 +215,8 @@ app.post('/merge', async (req, res) => {
   if (!sessionId) return res.status(400).json({ error: 'sessionId requis' });
 
   const videoFiles = fs.readdirSync(videosDir).filter(f => f.startsWith(`video_${sessionId}_`)).sort();
-  if (videoFiles.length < 2) return res.status(400).json({ error: 'Besoin de 2+ vidéos pour cette session' });
+  console.log(`🔍 Session ${sessionId}: ${videoFiles.length} vidéos trouvées:`, videoFiles);
+  if (videoFiles.length < 2) return res.status(400).json({ error: `Besoin de 2+ vidéos pour cette session. Trouvé: ${videoFiles.length}` });
 
   try {
     const metadatas = await Promise.all(videoFiles.map(f => validateVideo(path.join(videosDir, f))));
