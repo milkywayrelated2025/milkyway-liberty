@@ -35,6 +35,9 @@ app.use(cors());
 app.use(express.json());
 app.use('/videos', express.static(videosDir));
 
+// Servir les fichiers statiques (HTML, CSS, JS)
+app.use(express.static(__dirname));
+
 // Créer le dossier videos s'il n'existe pas
 if (!fs.existsSync(videosDir)) {
   fs.mkdirSync(videosDir);
