@@ -27,7 +27,7 @@ const CLEANUP_TTL = process.env.CLEANUP_TTL || 7200000; // 2h
 
 // Configuration
 const videosDir = path.join(__dirname, 'videos');
-const ffmpegPath = process.env.FFMPEG_PATH || '/usr/local/bin/ffmpeg'; // Pour Railway ou local
+const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg'; // Utilise ffmpeg du PATH
 const ffprobePath = ffmpegPath.replace('ffmpeg', 'ffprobe');
 
 // Middleware
